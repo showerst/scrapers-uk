@@ -24,10 +24,12 @@ class UK(Jurisdiction):
         "people": UKPersonScraper,
         "bills": UKBillScraper,
     }
+
+    # http://lda.data.parliament.uk/sessions.json
     legislative_sessions = [
-        {"identifier":"2017",
-         "name":"2017 Session",
-         "start_date": "2017-01-01",
+        {"identifier":"2016-2017",
+         "name":"2016-2017 Session",
+         "start_date": "2016-01-01",
          "end_date": "2017-12-31"}
     ]
 
@@ -58,3 +60,7 @@ class UK(Jurisdiction):
     #             display_name=area['label']['_value']
     #         )
     #         yield div
+
+        # for division in Division.get(self.division_id).children('ed'):
+        #     if division.attrs.get('validFrom') and division.attrs['validFrom'] <= datetime.now().strftime('%Y-%m-%d'):
+        #         lower.add_post(role='MP', label=division.name, division_id=division.id)
