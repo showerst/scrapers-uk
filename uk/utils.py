@@ -4,7 +4,7 @@ import requests
 def get_all_pages(url, url_args={}):
     return_val = []
     arguments = {'_pageSize':500,
-                 '_page':1}
+                 '_page':0}
     arguments.update(url_args)
     page = requests.get(url, params=arguments)
     json_obj = json.loads(page.content)
