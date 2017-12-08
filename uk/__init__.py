@@ -1,6 +1,4 @@
 # coding: utf-8
-#from opencivicdata.divisions import Division
-# https://github.com/evanodell/hansard/blob/master/R/members.R
 from pupa.scrape import Organization
 from pupa.scrape import Jurisdiction
 
@@ -29,8 +27,7 @@ class UK(Jurisdiction):
     legislative_sessions = [
         {"identifier":"2016-2017",
          "name":"2016-2017 Session",
-         "start_date": "2016-01-01",
-         "end_date": "2017-12-31"}
+         "start_date": "2016-05-18"}
     ]
 
 
