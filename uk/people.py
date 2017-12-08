@@ -17,6 +17,8 @@ class UKPersonScraper(Scraper):
     # TODO: This looks like a better source...
     # http://data.parliament.uk/membersdataplatform/memberquery.aspx#outputs
     # http://data.parliament.uk/membersdataplatform/services/mnis/members/query/house=Commons/BasicDetails/
+    # http://data.parliament.uk/membersdataplatform/services/mnis/members/query/House=Commons%7CIsEligible=true/Addresses/
+    # http://data.parliament.uk/membersdataplatform/services/mnis/members/query/House=Commons%7CIsEligible=true/Addresses%7CConstituencies%7CStaff/
 
     api_base = 'http://lda.data.parliament.uk/'
 
@@ -64,7 +66,7 @@ class UKPersonScraper(Scraper):
         members = get_all_pages(url, url_args)
         for member in members:
             member_id = member['_about'].rsplit('/', 1)[-1]
-            if member_id in member_ids:            
+            if member_id in member_ids:
                 person = Person(name=member['fullName']['_value'],
                                 role="Member",
                                 primary_org="House of Lords",
@@ -94,7 +96,9 @@ class UKPersonScraper(Scraper):
             person.extras['party'] = member['party']['_value']
 
         if 'twitter' in member:
-            person.links.append({'note':'twitter', 'url':member['twitter']['_value']})
+            if member['twitter']['_value'][0:4] != 'http':
+                member['twitter']['_value'] = 'https://twitter.com/{}'.format(member['twitter']['_value'])
+            person.links.append({'note':'twitter', 'url': member['twitter']['_value']})
 
         if 'homepage' in member:
             person.links.append({'note':'Home Page', 'url':member['homepage']})
