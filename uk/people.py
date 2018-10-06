@@ -3,8 +3,13 @@ import lxml.html
 from pupa.scrape import Scraper, Person
 from lxml import etree
 import json
-from .utils import get_all_pages
+from .utils import get_all_pages, get_ocds_by_name
 import pprint
+import sys
+import requests
+import unidecode
+import dateutil.parser
+import pytz
 
 class UKPersonScraper(Scraper):
     # http://lda.data.parliament.uk/commonsmembers.json?_pageSize=50
@@ -20,60 +25,98 @@ class UKPersonScraper(Scraper):
     # http://data.parliament.uk/membersdataplatform/services/mnis/members/query/House=Commons%7CIsEligible=true/Addresses/
     # http://data.parliament.uk/membersdataplatform/services/mnis/members/query/House=Commons%7CIsEligible=true/Addresses%7CConstituencies%7CStaff/
 
-    api_base = 'http://lda.data.parliament.uk/'
+    # http://data.parliament.uk/membersdataplatform/services/mnis/ReferenceData/Constituencies/
+
+    # get this (i think theres a way to get only current or on a date)
+    # and use it to get the ordnance survey ID,
+    # which can then be crossed reffed to OCD
+    # http://data.parliament.uk/membersdataplatform/services/mnis/ReferenceData/Constituencies/
+    # it's the <ONSCode> key
+
+    ocds_by_name = {}
+    genders = {'F': 'female', 'M': 'male'}
+    houses = {'Commons': 'House of Commons', 'Lords': 'House of Lords'}
+
+    def api_query(self, query):
+        api_base = 'http://data.parliament.uk/membersdataplatform/services/mnis/'
+        url = '{}{}'.format(api_base, query)
+        # print(url)
+        headers = {"accept": "application/json"}
+        page = requests.get(url, headers=headers)
+        # print(page.content)
+        return json.loads(page.content)
+
+    def process_date(self, date):
+        date = dateutil.parser.parse(date)
+        date = date.replace(tzinfo=pytz.UTC)
+        return date
 
     def scrape(self):
+
+        self.ocds_by_name = get_ocds_by_name()
+
         yield self.scrape_lower()
         yield self.scrape_upper()
 
+    def process_person(self, member):
+        # print(member)
+
+        if member['Party']:
+            party = member['Party']['#text']
+        else:
+            party = None
+
+        person = Person(
+            name=member['DisplayAs'],
+            district=member['MemberFrom'],
+            role='member',
+            primary_org=self.houses[member['House']],
+            gender=self.genders[member['Gender']],
+            party=party,
+            start_date=self.process_date(member['CurrentStatus']['StartDate']),
+        )
+
+        if type(member['PreferredNames']['PreferredName']) == list:
+            names = member['PreferredNames']['PreferredName'][0]
+        else:
+            names = member['PreferredNames']['PreferredName']
+
+        person.extras['given_name'] = names['Forename']
+        person.extras['family_name'] = names['Surname']
+
+        if type(member['DateOfBirth']) is str:
+            person.birth_date = self.process_date(member['DateOfBirth'])
+
+        return person
+
     def scrape_lower(self):
-        # I haven't found a way to filter the API by Active,
-        # but it returns more metadata. So scrape the web version
-        # then cross-ref.
-        web_url = 'http://www.parliament.uk/mps-lords-and-offices/mps/'
-        page = lxml.html.fromstring(self.get(url=web_url).content)
-        member_rows = page.xpath('//div[@id="pnlListing"]/table//tr[@id]/td[1]/a/@href')
-        member_ids = []
-        for row in member_rows:
-            member_ids.append(row.rsplit('/', 1)[-1])
+        fragment = 'members/query/House=Commons%7CIsEligible=true/Addresses%7CConstituencies%7CStaff%7CPreferredNames/'
+        members = self.api_query(fragment)
 
-        url = "{}commonsmembers.json".format(self.api_base)
-        url_args = {'exists-constituency':'true',
-                    '_properties':'birthDate,deathDate'}
-        members = get_all_pages(url, url_args)
+        for member in members['Members']['Member']:
 
-        for member in members:
-            member_id = member['_about'].rsplit('/', 1)[-1]
-            if member_id in member_ids:
-                person = Person(name=member['fullName']['_value'],
-                                district=member['constituency']['label']['_value'],
-                                role="Member",
-                                primary_org="House of Commons")
-                person = self.add_extras(member, person)
-                person.add_source(url=member['_about'])
-                yield person
+            person = self.process_person(member)
+
+            # we need the unidecode to remove special chars
+            ascii_post = unidecode.unidecode(member['MemberFrom'].lower())
+            person.extras['division_id'] = self.ocds_by_name[ascii_post]
+
+            person.add_source(
+                url = 'http://www.parliament.uk/mps-lords-and-offices/mps/')
+            yield person
 
     def scrape_upper(self):
-        web_url = 'http://www.parliament.uk/mps-lords-and-offices/lords/'
-        page = lxml.html.fromstring(self.get(url=web_url).content)
-        member_rows = page.xpath('//div[@id="pnlListing"]/table//tr[@id]/td[1]/a/@href')
-        member_ids = []
-        for row in member_rows:
-            member_ids.append(row.rsplit('/', 1)[-1])
+        web_url='http://www.parliament.uk/mps-lords-and-offices/lords/'
 
-        url = "{}lordsmembers.json".format(self.api_base)
-        url_args = {'_properties':'birthDate,deathDate'}
-        members = get_all_pages(url, url_args)
-        for member in members:
-            member_id = member['_about'].rsplit('/', 1)[-1]
-            if member_id in member_ids:
-                person = Person(name=member['fullName']['_value'],
-                                role="Member",
-                                primary_org="House of Lords",
-                            )
-                person = self.add_extras(member, person)
-                person.add_source(url=member['_about'])
-                yield person
+        fragment = 'members/query/House=Lords%7CIsEligible=true/Addresses%7CConstituencies%7CStaff%7CPreferredNames/'
+        members = self.api_query(fragment)
+
+        for member in members['Members']['Member']:
+
+            person = self.process_person(member)
+            person.add_source(
+                url = 'http://www.parliament.uk/mps-lords-and-offices/lords/')
+            yield person
 
     def add_extras(self, member, person):
         person.extras = {'family_name':member['familyName']['_value'],
